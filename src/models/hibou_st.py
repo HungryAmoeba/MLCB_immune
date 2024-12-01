@@ -11,22 +11,25 @@ class HibouST(nn.Module):
         mlp.add_module("linear_0", torch.nn.Linear(hibou_model.config.hidden_size, linear_config[0]))
         mlp.add_module("relu_0", torch.nn.ReLU())
         for i in range(len(linear_config)-1):
-            mlp.add_module(f"linear_{i}", torch.nn.Linear(linear_config[i], linear_config[i+1]))
-            mlp.add_module(f"relu_{i}", torch.nn.ReLU())
+            mlp.add_module(f"linear_{i+1}", torch.nn.Linear(linear_config[i], linear_config[i+1]))
+            mlp.add_module(f"relu_{i+1}", torch.nn.ReLU())
         
         mlp.add_module("linear_out", torch.nn.Linear(linear_config[-1], output_dim))
-
+        self.mlp = mlp
         # Freeze the hibou model weights
         for param in self.hibou_model.parameters():
             param.requires_grad = False
+
+        self.nonlin = nn.SiLU()
             
     def forward(self, x):
         # Pass the input through the hibou model
         hibou_output = self.hibou_model(**x).pooler_output
 
         # Apply the linear layers and ReLU activation
-        x = self.relu(self.linear1(hibou_output))
-        x = self.linear2(x)
+        # x = self.nonlin(self.linear1(hibou_output))
+        # x = self.linear2(x)
+        x = self.mlp(hibou_output)
         return x
     
 if __name__ == '__main__':

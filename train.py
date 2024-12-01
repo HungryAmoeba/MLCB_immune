@@ -28,6 +28,10 @@ def main():
     # list every thing in data path
     sdata = load_sdata(args.data_path)
 
+    # Load the model and processor
+    processor = AutoImageProcessor.from_pretrained("histai/hibou-b", trust_remote_code=True)
+    model = AutoModel.from_pretrained("histai/hibou-b", trust_remote_code=True)
+
     ## Get the list of gene concerned in crunch 1
     gene_name_list = sdata['anucleus'].var['gene_symbols'].values
     x_count = pd.DataFrame(sdata['anucleus'].layers['counts'], columns=gene_name_list) # raw count data
@@ -52,10 +56,13 @@ def main():
         crop_list = load_cropped_cells(out_dir=args.crop_dir)
     
     # get the dictionary to convert cell_id to crop_list index
-    cell_id_to_crop_list_ind_dict, crop_list_id_to_ind = get_dicts_ind_id(args.crop_dir)
+    crop_list_id_to_ind, crop_list_ind_to_id = get_dicts_ind_id(args.crop_dir)
 
     # Create the dataset
-    dataset = SpatialDataset(crop_list, y, cell_id_to_crop_list_ind_dict=crop_list_id_to_ind)
+    dataset = SpatialDataset(crop_list, 
+                             y, 
+                             transform=processor,
+                             cell_id_to_crop_list_ind_dict=crop_list_id_to_ind)
 
     # split the dataset into train, validation and test sets and then make dataloaders for each
     # Define the sizes for train, validation, and test sets
@@ -73,11 +80,9 @@ def main():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    processor = AutoImageProcessor.from_pretrained("histai/hibou-b", trust_remote_code=True)
-    model = AutoModel.from_pretrained("histai/hibou-b", trust_remote_code=True)
-
     # Initialize model
-    hibou_st = HibouST(model, linear_config=[1024, 512, 256])
+    hibou_st = HibouST(model, linear_config=args.linear_config)
+    print(hibou_st)
 
     # Define the loss function and optimizer
     criterion = torch.nn.MSELoss()
@@ -123,7 +128,7 @@ def main():
             expression = expression.to(device)
 
             output = hibou_st(image)
-            loss = criterion(output, expression)
+            loss = criterion(output, expression.float())
             val_loss += loss.item()
 
         avg_val_loss = val_loss / len(val_loader)
