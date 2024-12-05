@@ -2,14 +2,27 @@
 
 import torch
 from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import pandas as pd
 
 class SpatialDataset(Dataset):
-    def __init__(self, image_crops, expressions, transform=None, cell_id_to_crop_list_ind_dict=None):
+    def __init__(self, 
+                 image_crops, 
+                 expressions, 
+                 transform=None, 
+                 cell_id_to_crop_list_ind_dict=None,
+                 log1p_normalize=False):
         self.image_crops = image_crops
         self.expressions = expressions
         self.transform = transform 
         self.id_to_ind = cell_id_to_crop_list_ind_dict
+        self.log1p_normalize = log1p_normalize
 
+        # log1p normalize the expression data if needed
+        if self.log1p_normalize:
+            # expressions is a pandas dataframe
+            normalized_values = np.log1p((self.expressions.to_numpy() / self.expressions.sum(axis=1).to_numpy()[:, None]) * 100)
+            self.expressions = pd.DataFrame(normalized_values, columns=self.expressions.columns, index=self.expressions.index)
     def __len__(self):
         return len(self.expressions)
 
