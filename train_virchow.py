@@ -4,14 +4,25 @@ import numpy as np
 import pandas as pd
 import torch 
 
-from src.data.sd_dataloader import SpatialDataset
+from src.data.sd_dataloader_virchow import SpatialDataset
 from src.utils.crop_list import save_cropped_cells, load_cropped_cells, get_dicts_ind_id
 from src.utils.process_sdata import load_sdata
 from src.models.hibou_st import HibouST
+from src.models.virchow_st import VirchowST
 from torch.utils.data import DataLoader, random_split
 
 from transformers import AutoImageProcessor, AutoModel
 from datetime import datetime
+
+import timm
+import torch
+
+from timm.data import resolve_data_config
+from timm.data.transforms_factory import create_transform
+from timm.layers import SwiGLUPacked
+from PIL import Image
+
+from tqdm import tqdm
 
 def main():
     parser = argparse.ArgumentParser(description='Train a model on spatial data')
@@ -30,8 +41,14 @@ def main():
     sdata = load_sdata(args.data_path)
 
     # Load the model and processor
-    processor = AutoImageProcessor.from_pretrained("histai/hibou-b", trust_remote_code=True)
-    model = AutoModel.from_pretrained("histai/hibou-b", trust_remote_code=True)
+    # processor = AutoImageProcessor.from_pretrained("histai/hibou-b", trust_remote_code=True)
+    # model = AutoModel.from_pretrained("histai/hibou-b", trust_remote_code=True)
+
+    model = timm.create_model("hf-hub:paige-ai/Virchow2", pretrained=True, mlp_layer=SwiGLUPacked, act_layer=torch.nn.SiLU)
+    model = model.eval()
+
+    transforms = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
+    processor = transforms
 
     ## Get the list of gene concerned in crunch 1
     gene_name_list = sdata['anucleus'].var['gene_symbols'].values
@@ -51,7 +68,7 @@ def main():
 
     if args.recompute_crops:
         # Save the cropped images
-        crop_list = save_cropped_cells(sdata, y, out_dir=args.crop_dir)
+        crop_list = save_cropped_cells(sdata, 32, out_dir=args.crop_dir)
     else:
         # Load the cropped images
         crop_list = load_cropped_cells(out_dir=args.crop_dir)
@@ -80,31 +97,31 @@ def main():
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
     test_loader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=False)
 
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('mps' if torch.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu'))
 
     # Initialize model
-    hibou_st = HibouST(model, linear_config=args.linear_config)
+    virchow_st = VirchowST(model, linear_config=args.linear_config)
 
     # Define the loss function and optimizer
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(hibou_st.parameters(), lr=args.learning_rate)
+    optimizer = torch.optim.Adam(virchow_st.parameters(), lr=args.learning_rate)
 
     # Move the model to the device
-    hibou_st.to(device)
+    virchow_st.to(device)
 
     # Initialize lists to store loss history
     train_loss_history = []
 
     # Training loop
     for epoch in range(args.epochs):
-        hibou_st.train()
+        virchow_st.train()
         train_loss = 0
-        for i, (image, expression) in enumerate(train_loader):
-            image = {k: v.to(device) for k, v in image.items()}
+        for i, (image, expression) in tqdm(enumerate(train_loader)):
+            image = image.to(device)
             expression = expression.to(device)
 
             optimizer.zero_grad()
-            output = hibou_st(image)
+            output = virchow_st(image)
 
             loss = criterion(output, expression.float())
             loss.backward()
@@ -117,15 +134,14 @@ def main():
         print(f'Epoch {epoch+1}, Loss: {avg_train_loss}')
 
     # Evaluate the model on the validation set
-    hibou_st.eval()
+    virchow_st.eval()
     val_loss = 0
     with torch.no_grad():
-        for i, (image, expression) in enumerate(val_loader):
-            image = {k: v.to(device) for k, v in image.items()}
+        for i, (image, expression) in tqdm(enumerate(val_loader)):
+            image = image.to(device)
             expression = expression.to(device)
 
-            output = hibou_st(image)
-
+            output = virchow_st(image)
             loss = criterion(output, expression.float())
             val_loss += loss.item()
 
@@ -136,7 +152,7 @@ def main():
     # make a directory to save the run information with the title as the time of the run
     current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     save_dir_name = os.path.join(args.output_dir, current_time)
-    
+
     os.makedirs(save_dir_name, exist_ok=True)
     torch.save(model.state_dict(), os.path.join(save_dir_name, 'model.pth'))
 

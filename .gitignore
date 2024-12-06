@@ -168,6 +168,7 @@ cython_debug/
 notebooks/data
 notebooks/.crunchdao
 notebooks/image_crop
+notebooks/resources_hibou
 image_crop/
 hibou/
 logs/
