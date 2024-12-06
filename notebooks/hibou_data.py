@@ -32,6 +32,10 @@ import torch
 import timm  # timm: A library to load pretrained SOTA computer vision models (e.g. classification, feature extraction, ...)
 from sklearn.linear_model import Ridge  # Regression model
 from transformers import AutoImageProcessor, AutoModel
+from timm.data import resolve_data_config
+from timm.data.transforms_factory import create_transform
+from timm.layers import SwiGLUPacked
+from PIL import Image
 
 # Cell typing
 import celltypist
@@ -1723,4 +1727,4 @@ if __name__ == "__main__":
     args_dict['num_cell_types'] = num_cell_types
     print(f'num_cell_types: {num_cell_types}')
 
-    train(data_directory_path='./data', model_directory_path="./resources_hibou", args_dict=args_dict)
+    train(data_directory_path=args.data_directory_path, model_directory_path=args.model_directory_path, args_dict=args_dict)
