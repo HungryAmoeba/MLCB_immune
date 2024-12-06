@@ -11,9 +11,8 @@ from src.models.hibou_st import HibouST
 from src.models.virchow_st import VirchowST
 from torch.utils.data import DataLoader, random_split
 
-from tqdm import tqdm
-
 from transformers import AutoImageProcessor, AutoModel
+from datetime import datetime
 
 import timm
 import torch
@@ -22,6 +21,8 @@ from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
 from timm.layers import SwiGLUPacked
 from PIL import Image
+
+from tqdm import tqdm
 
 def main():
     parser = argparse.ArgumentParser(description='Train a model on spatial data')
@@ -67,7 +68,7 @@ def main():
 
     if args.recompute_crops:
         # Save the cropped images
-        crop_list = save_cropped_cells(sdata, 256, out_dir=args.crop_dir)
+        crop_list = save_cropped_cells(sdata, 32, out_dir=args.crop_dir)
     else:
         # Load the cropped images
         crop_list = load_cropped_cells(out_dir=args.crop_dir)
@@ -79,7 +80,8 @@ def main():
     dataset = SpatialDataset(crop_list, 
                              y, 
                              transform=processor,
-                             cell_id_to_crop_list_ind_dict=crop_list_id_to_ind)
+                             cell_id_to_crop_list_ind_dict=crop_list_id_to_ind,
+                             log1p_normalize=True)
 
     # split the dataset into train, validation and test sets and then make dataloaders for each
     # Define the sizes for train, validation, and test sets
@@ -131,10 +133,6 @@ def main():
         train_loss_history.append(avg_train_loss)
         print(f'Epoch {epoch+1}, Loss: {avg_train_loss}')
 
-    # Save the loss history
-    loss_history_path = os.path.join(args.output_dir, 'loss_history.npy')
-    np.save(loss_history_path, np.array(train_loss_history))
-
     # Evaluate the model on the validation set
     virchow_st.eval()
     val_loss = 0
@@ -151,11 +149,19 @@ def main():
         print(f'Validation Loss: {avg_val_loss}')
 
     # Save the model
-    os.makedirs(args.output_dir, exist_ok=True)
-    torch.save(model.state_dict(), os.path.join(args.output_dir, 'virchow_model.pth'))
+    # make a directory to save the run information with the title as the time of the run
+    current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    save_dir_name = os.path.join(args.output_dir, current_time)
+
+    os.makedirs(save_dir_name, exist_ok=True)
+    torch.save(model.state_dict(), os.path.join(save_dir_name, 'model.pth'))
+
+    # Save the loss history
+    loss_history_path = os.path.join(save_dir_name, 'loss_history.npy')
+    np.save(loss_history_path, np.array(train_loss_history))
 
     # Write the args to a file
-    with open(os.path.join(args.output_dir, 'args.txt'), 'w') as f:
+    with open(os.path.join(save_dir_name, 'args.txt'), 'w') as f:
         f.write(str(args))
 
 if __name__ == '__main__':
