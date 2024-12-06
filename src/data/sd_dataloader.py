@@ -5,6 +5,8 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import pandas as pd
 
+from PIL import Image
+
 class SpatialDataset(Dataset):
     def __init__(self, 
                  image_crops, 
