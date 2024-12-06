@@ -1351,7 +1351,7 @@ def train_test_reg(X_train, X_test, y_train, y_test,
         model.to(device)
 
         # Train the model
-        for epoch in range(100):
+        for epoch in range(125):
             model.train()
             total_loss = 0
             for i, batch in enumerate(train_loader):
