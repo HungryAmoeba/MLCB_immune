@@ -32,9 +32,13 @@ class SpatialDataset(Dataset):
         image = self.image_crops[self.id_to_ind[cell_id]]
         expression = self.expressions.iloc[idx].values
         if self.transform:
-            image = self.transform(image, return_tensors="pt")['pixel_values']
-        image = image.squeeze(0)
-        image = {'pixel_values': image}
+            # Convert the image_patch to a format suitable for PIL
+            image_patch = image.transpose(1, 2, 0)  # Change shape to 256x256x3
+            PIL_image = Image.fromarray(image_patch, 'RGB')
+    
+            # Apply the processor to the image patch
+            image = self.transform(PIL_image)
+        # image = image.squeeze(0)
         return image, expression
 
 # example usage: 

@@ -9,7 +9,7 @@ class VirchowST(nn.Module):
         self.virchow_model = virchow_model
 
         mlp = torch.nn.Sequential()
-        mlp.add_module("linear_0", torch.nn.Linear(virchow_model.config.hidden_size, linear_config[0]))
+        mlp.add_module("linear_0", torch.nn.Linear(2560, linear_config[0]))
         mlp.add_module("relu_0", torch.nn.ReLU())
 
         for i in range(len(linear_config)-1):
@@ -19,15 +19,21 @@ class VirchowST(nn.Module):
         mlp.add_module("linear_out", torch.nn.Linear(linear_config[-1], output_dim))
         self.mlp = mlp
 
-        # Freeze the hibou model weights
-        for param in self.hibou_model.parameters():
+        # Freeze the Virchow model weights
+        for param in self.virchow_model.parameters():
             param.requires_grad = False
 
         self.nonlin = nn.SiLU()
             
     def forward(self, x):
-        # Pass the input through the hibou model
-        virchow_output = self.virchow_model(**x).pooler_output
+        # Pass the input through the Virchow model
+        output = self.virchow_model(x)  # size: 1 x 261 x 1280
+
+        class_token = output[:, 0]    # size: 1 x 1280
+        patch_tokens = output[:, 5:]  # size: 1 x 256 x 1280, tokens 1-4 are register tokens so we ignore those
+
+        # concatenate class token and average pool of patch tokens
+        virchow_output = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # size: 1 x 2560
 
         # Apply the linear layers and ReLU activation
         # x = self.nonlin(self.linear1(hibou_output))
@@ -49,19 +55,7 @@ if __name__ == '__main__':
     model = model.eval()
 
     transforms = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
+    processor = transforms
 
-    image1 = Image.open("notebooks/image_crop/1.tif")
-    image2 = Image.open("notebooks/image_crop/1.tif")
-
-    image1 = transforms(image1).unsqueeze(0)  # size: 1 x 3 x 224 x 224
-    image2 = transforms(image2).unsqueeze(0)  # size: 1 x 3 x 224 x 224
-
-    images = torch.cat([image1, image2], dim=0)  # concatenate images along the batch dimension
-    output = model(images)  # size: 2 x 261 x 1280
-
-    class_token = output[:, 0]    # size: 1 x 1280
-    patch_tokens = output[:, 5:]  # size: 1 x 256 x 1280, tokens 1-4 are register tokens so we ignore those
-
-    # concatenate class token and average pool of patch tokens
-    embedding = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # size: 1 x 2560
-
+    VirchowWrapper = VirchowST(model, linear_config = [1024, 512, 256])
+    print(VirchowWrapper)
