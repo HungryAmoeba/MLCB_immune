@@ -32,6 +32,10 @@ import torch
 import timm  # timm: A library to load pretrained SOTA computer vision models (e.g. classification, feature extraction, ...)
 from sklearn.linear_model import Ridge  # Regression model
 from transformers import AutoImageProcessor, AutoModel
+from timm.data import resolve_data_config
+from timm.data.transforms_factory import create_transform
+from timm.layers import SwiGLUPacked
+from PIL import Image
 
 # Cell typing
 import celltypist
@@ -959,6 +963,70 @@ class HibouInferenceEncoder(InferenceEncoder):
         out = self.model(x).pooler_output
         return out
 
+class VirchowInferenceEncoder(InferenceEncoder):
+    def _build(self, weights_path=None, **build_kwargs):
+        """
+        Build the Hibou model and load its weights.
+
+        Parameters:
+        -----------
+        weights_path : str
+            Path to the model weights (optional).
+
+        Returns:
+        --------
+        tuple
+            A tuple containing the Hibou model, the evaluation transformations, and the precision type.
+        """
+
+        # Build the model
+        import timm
+        import torch
+
+        from timm.data import resolve_data_config
+        from timm.data.transforms_factory import create_transform
+        from timm.layers import SwiGLUPacked
+        from PIL import Image
+
+        # need to specify MLP layer and activation function for proper init
+        model = timm.create_model("hf-hub:paige-ai/Virchow2", pretrained=True, mlp_layer=SwiGLUPacked, act_layer=torch.nn.SiLU)
+        model = model.eval()
+
+        transforms = create_transform(**resolve_data_config(model.pretrained_cfg, model=model))
+        processor = transforms        # processor(image, return_tensors='pt')['pixel_values']
+
+        def eval_transforms(img):
+            image_patch = image.transpose(1, 2, 0)  # Change shape to 256x256x3
+            PIL_image = Image.fromarray(image_patch, 'RGB')
+    
+            # Apply the processor to the image patch
+            image = processor(PIL_image)
+
+            img = {'pixel_values': image}
+            return img
+
+        # Define the evaluation transformations
+        # eval_transforms = transforms.Compose([
+        #     transforms.ToTensor()
+        # ])
+
+        precision = torch.float32
+
+        return model, eval_transforms, precision
+    
+    def forward(self, x):
+        # need to see what is the input to forward
+        output = self.model(x)  # size: 1 x 261 x 1280
+
+        class_token = output[:, 0]    # size: 1 x 1280
+        patch_tokens = output[:, 5:]  # size: 1 x 256 x 1280, tokens 1-4 are register tokens so we ignore those
+
+        # concatenate class token and average pool of patch tokens
+        virchow_output = torch.cat([class_token, patch_tokens.mean(1)], dim=-1)  # size: 1 x 2560
+
+        return virchow_output
+
+
 def inf_encoder_factory(enc_name):
     """
     Factory function to instantiate an encoder based on the specified name.
@@ -979,6 +1047,9 @@ def inf_encoder_factory(enc_name):
 
     if enc_name == 'Hibou':
         return HibouInferenceEncoder
+    
+    if enc_name == 'Virchow':
+        return VirchowInferenceEncoder
     
     raise ValueError(f"Unknown encoder name {enc_name}")
 
@@ -1589,7 +1660,7 @@ def run_training(args):
 
     print(f'run parameters {args}')
     # Set device to GPU if available
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("mps" if torch.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu"))
 
     # Create directory for results
     save_dir = args.results_dir
@@ -1684,7 +1755,7 @@ if __name__ == "__main__":
     import argparse 
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_directory_path', type=str, default='./data', help='Path to the input data directory')
-    parser.add_argument('--model_directory_path', type=str, default='./resources_hibou', help='Path to save the trained model and results')
+    parser.add_argument('--model_directory_path', type=str, default='./resources_virchow', help='Path to save the trained model and results')
     parser.add_argument('--size_subset', type=int, default=10000, help='Sampling size for smaller images from each H&E image')
     parser.add_argument('--target_patch_size', type=int, default=256, help='Target size of cell patches (sub-region of an image)')
     parser.add_argument('--show_extracted_images', type=bool, default=False, help='Whether to visualize all the extracted patches for the first ST data')
@@ -1702,7 +1773,7 @@ if __name__ == "__main__":
     parser.add_argument('--method', type=str, default='mlp', help='Regression method to use. ridge or mlp')
     parser.add_argument('--alpha', type=float, default=None, help='Regularization parameter for ridge regression')
     parser.add_argument('--normalize', type=bool, default=False, help='Whether to normalize the data')
-    parser.add_argument('--encoder', type=str, default='Hibou', help='Encoder model to use')
+    parser.add_argument('--encoder', type=str, default='Virchow', help='Encoder model to use')
     parser.add_argument('--weights_root', type=str, default="pytorch_model.bin", help='Path to the pre-trained model weights in model_directory_path')
     parser.add_argument('--cell_type_task', type=str, default=True, help='Cell type task')
     args = parser.parse_args()
@@ -1723,4 +1794,4 @@ if __name__ == "__main__":
     args_dict['num_cell_types'] = num_cell_types
     print(f'num_cell_types: {num_cell_types}')
 
-    train(data_directory_path='./data', model_directory_path="./resources_hibou", args_dict=args_dict)
+    train(data_directory_path=args.data_directory_path, model_directory_path=args.model_directory_path, args_dict=args_dict)
