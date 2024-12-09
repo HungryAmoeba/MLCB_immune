@@ -169,6 +169,7 @@ notebooks/data
 notebooks/.crunchdao
 notebooks/image_crop
 notebooks/resources_hibou
+notebooks/resources_virchow
 image_crop/
 hibou/
 logs/
