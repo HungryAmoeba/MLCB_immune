@@ -1,0 +1,17 @@
+Gene,Coding,Fine_Mapped,LD_Block
+AHR,False,False,True
+CARD9,True,True,False
+CCL20,False,False,True
+CD6,True,False,False
+GPR35,False,True,False
+HNF4A,False,True,False
+IFIH1,True,True,False
+IFNG,False,False,True
+IKZF1,False,True,True
+IL12B,False,True,True
+IL23R,True,False,True
+IRF8,False,False,True
+NKX2-3,False,True,True
+NXPE1,True,False,False
+OSMR,False,False,True
+PTPRC,False,False,True
